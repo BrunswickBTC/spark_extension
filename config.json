@@ -1,0 +1,13 @@
+{
+  "id": "sparkl2",
+  "version": "0.1.0",
+  "name": "Spark L2",
+  "repo": "https://github.com/wolffelectronicdesign/sparkl2-lnbits",
+  "short_description": "Provider-specific read-only management for the Spark L2 sidecar",
+  "description": "",
+  "tile": "/sparkl2/static/image/sparkl2.png",
+  "min_lnbits_version": "1.5.0",
+  "license": "MIT",
+  "tags": ["Wallet", "Spark", "Management"],
+  "hidden": false
+}
