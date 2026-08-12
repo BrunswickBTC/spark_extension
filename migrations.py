@@ -42,3 +42,16 @@ async def m003_deposit_reconciliation(db: Database):
         await db.execute(f"ALTER TABLE {db.schema}.deposit_addresses ADD COLUMN vout INTEGER")
     except Exception:
         pass
+
+
+async def m004_repair_reconciliation_schema(db: Database):
+    """Repair installations whose earlier migration version was already recorded."""
+    await db.execute(f"""
+        CREATE TABLE IF NOT EXISTS {db.schema}.settings (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL
+        )
+    """)
+    try:
+        await db.execute(f"ALTER TABLE {db.schema}.deposit_addresses ADD COLUMN vout INTEGER")
+    except Exception:
+        pass
