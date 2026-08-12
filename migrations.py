@@ -3,6 +3,11 @@ from lnbits.db import Database
 
 async def _ensure_tables(db: Database):
     await db.execute(f"""
+        CREATE TABLE IF NOT EXISTS {db.schema}.settings (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL
+        )
+    """)
+    await db.execute(f"""
         CREATE TABLE IF NOT EXISTS {db.schema}.deposit_addresses (
             id TEXT PRIMARY KEY, wallet_id TEXT NOT NULL, user_id TEXT NOT NULL,
             address TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'issued',
