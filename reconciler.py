@@ -24,7 +24,7 @@ from .crud import (
 from .events import publish
 
 INTERVAL_SECONDS = 60
-SPARK_TAG = "#spark-l2"
+SPARK_TAG = "spark-l2"
 SPARK_RECEIVE_MEMO = "Spark tokens received via funding source"
 
 
