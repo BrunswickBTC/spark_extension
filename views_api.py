@@ -10,6 +10,7 @@ from loguru import logger
 
 from .client import SparkSidecarClient
 from .events import events_response
+from .events import publish as publish_event
 from .reconciler import record_internal_credit, transaction_key
 from .crud import (create_deposit, get_active_deposit, get_deposit, get_deposit_by_address, list_deposits, mark_deposit_claimed, create_transfer, get_transfer_by_provider, get_setting, set_setting, GLOBAL_WALLET_KEY)
 from lnbits.core.crud import get_wallet, get_user, get_accounts
@@ -84,13 +85,7 @@ async def api_static_deposit():
 @sparkl2_api_router.post("/api/v1/transfers", dependencies=[Depends(check_user_exists)])
 async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
     global _transfers_cache, _transfers_cache_at
-    now = time.monotonic()
-    if _transfers_cache is not None and now - _transfers_cache_at < 15:
-        return _transfers_cache
     async with _transfers_lock:
-        now = time.monotonic()
-        if _transfers_cache is not None and now - _transfers_cache_at < 15:
-            return _transfers_cache
         result = await _call("transfers", _model_data(data, exclude_none=True))
         provider_rows = result if isinstance(result, list) else result.get("transfers", result.get("data", result.get("items", []))) if isinstance(result, dict) else []
         wallet_rows = await core_db.fetchall("SELECT wallets.id AS wallet_id, wallets.name AS wallet_name, accounts.id AS user_id, COALESCE(accounts.username, accounts.email, accounts.id) AS user_name FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.deleted = false")
