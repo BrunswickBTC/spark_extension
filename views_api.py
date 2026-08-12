@@ -95,18 +95,25 @@ async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
         provider_rows = result if isinstance(result, list) else result.get("transfers", result.get("data", result.get("items", []))) if isinstance(result, dict) else []
         wallet_rows = await core_db.fetchall("SELECT wallets.id AS wallet_id, wallets.name AS wallet_name, accounts.id AS user_id, COALESCE(accounts.username, accounts.email, accounts.id) AS user_name FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.deleted = false")
         wallet_map = {str(row["wallet_id"]): row for row in wallet_rows}
-        local_rows = await db.fetchall("SELECT wallet_id, direction, transaction_type, source, amount_sats, provider_txid, status FROM sparkl2.transfers ORDER BY created_at DESC LIMIT 100")
+        local_rows = await db.fetchall("SELECT id, wallet_id, direction, transaction_type, source, amount_sats, provider_txid, status, created_at FROM sparkl2.transfers ORDER BY created_at DESC LIMIT 100")
         local_map = {str(row["provider_txid"]): row for row in local_rows if row.get("provider_txid")}
         enriched = []
+        seen_provider_ids = set()
         for row in provider_rows:
             item = dict(row) if isinstance(row, dict) else {"provider": row}
             provider_id = item.get("id") or item.get("transfer_id") or item.get("transaction_id")
             local = local_map.get(str(provider_id))
             if local:
-                item.update({"direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "ledger_status": local["status"]})
+                seen_provider_ids.add(str(provider_id))
+                item.update({"id": local["id"], "direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "amount_sats": local["amount_sats"], "ledger_status": local["status"]})
             else:
-                item.update({"direction": item.get("direction") or "credit" if item.get("receiverIdentityPublicKey") else item.get("direction") or "unknown", "transaction_type": item.get("transaction_type") or "spark", "source": item.get("source") or "#spark-l2", "wallet_id": None, "wallet_name": None, "wallet_user": None})
+                item.update({"direction": item.get("direction") or "unknown", "transaction_type": item.get("transaction_type") or "spark", "source": item.get("source") or "#spark-l2", "wallet_id": None, "wallet_name": None, "wallet_user": None})
             enriched.append(item)
+        for local in local_rows:
+            if not local.get("provider_txid") or str(local["provider_txid"]) in seen_provider_ids:
+                continue
+            wallet = wallet_map.get(str(local["wallet_id"]), {})
+            enriched.append({"id": local["id"], "direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet.get("wallet_name"), "wallet_user": wallet.get("user_name"), "amount_sats": local["amount_sats"], "ledger_status": local["status"], "provider_txid": local["provider_txid"]})
         _transfers_cache = enriched
         _transfers_cache_at = time.monotonic()
         return enriched
