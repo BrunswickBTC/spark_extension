@@ -167,7 +167,7 @@ async def api_admin_global_wallets():
         SELECT wallets.id AS wallet_id, wallets.name AS wallet_name,
                accounts.id AS user_id, COALESCE(accounts.username, accounts.email, accounts.id) AS user_name
         FROM wallets JOIN accounts ON accounts.id = wallets.user
-        WHERE wallets.deleted = false AND accounts.activated = true
+        WHERE wallets.deleted = false AND wallets.shared_wallet_id IS NULL AND accounts.activated = true
         ORDER BY user_name, wallet_name
     """)
 
@@ -179,7 +179,7 @@ async def api_admin_global_wallet():
 
 @sparkl2_api_router.put("/api/v1/admin/global-wallet", dependencies=[Depends(check_admin)])
 async def api_admin_set_global_wallet(data: GlobalWalletRequest):
-    row = await core_db.fetchone("SELECT wallets.id FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.id = :id AND wallets.deleted = false AND accounts.activated = true", {"id": data.wallet_id})
+    row = await core_db.fetchone("SELECT wallets.id FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.id = :id AND wallets.deleted = false AND wallets.shared_wallet_id IS NULL AND accounts.activated = true", {"id": data.wallet_id})
     if not row:
         raise HTTPException(status_code=404, detail="Wallet not found")
     await set_setting(GLOBAL_WALLET_KEY, data.wallet_id)
