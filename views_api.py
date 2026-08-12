@@ -254,7 +254,19 @@ async def api_user_withdrawal_quote(data: WithdrawalQuoteRequest, user=Depends(c
     wallet = next((w for w in user.wallets if w.id == getattr(data, "wallet_id", None)), None)
     if not wallet:
         raise HTTPException(status_code=403, detail="Wallet does not belong to this user")
-    return await _call("withdrawal_quote", _model_data(data, exclude_none=True))
+    quote = await _call("withdrawal_quote", _model_data(data, exclude_none=True))
+    speed = (getattr(data, "exit_speed", "FAST") or "FAST").lower()
+    suffix = {"fast": "Fast", "medium": "Medium", "slow": "Slow"}.get(speed, "Fast")
+    def original_value(value):
+        if isinstance(value, dict):
+            return value.get("originalValue") or value.get("original_value") or value.get("value") or 0
+        return getattr(value, "originalValue", None) or getattr(value, "original_value", None) or getattr(value, "value", 0) or 0
+    user_fee = original_value(quote.get(f"userFee{suffix}") if isinstance(quote, dict) else getattr(quote, f"userFee{suffix}", None))
+    l1_fee = original_value(quote.get(f"l1BroadcastFee{suffix}") if isinstance(quote, dict) else getattr(quote, f"l1BroadcastFee{suffix}", None))
+    quote_id = quote.get("id") if isinstance(quote, dict) else getattr(quote, "id", None)
+    normalized = dict(quote) if isinstance(quote, dict) else {"provider_quote": quote}
+    normalized.update({"fee_quote_id": quote_id, "fee_amount_sats": int(user_fee) + int(l1_fee), "user_fee_sats": int(user_fee), "l1_broadcast_fee_sats": int(l1_fee), "exit_speed": data.exit_speed})
+    return normalized
 
 
 @sparkl2_api_router.post("/api/v1/withdrawal/quote", dependencies=[Depends(check_admin)])

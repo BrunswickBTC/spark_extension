@@ -49,6 +49,7 @@ class WithdrawalQuoteRequest(BaseModel):
     wallet_id: str = Field(..., min_length=1, max_length=128)
     amount_sats: int = Field(..., gt=0)
     withdrawal_address: str = Field(..., min_length=1, max_length=256)
+    exit_speed: str = Field("FAST", min_length=1, max_length=32)
 
 
 class WithdrawalRequest(BaseModel):
