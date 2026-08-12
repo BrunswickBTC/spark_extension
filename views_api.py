@@ -11,10 +11,11 @@ from loguru import logger
 from .client import SparkSidecarClient
 from .events import events_response
 from .reconciler import record_internal_credit, transaction_key
-from .crud import (create_deposit, get_deposit, get_deposit_by_address, list_deposits, mark_deposit_claimed, create_transfer, get_setting, set_setting, GLOBAL_WALLET_KEY)
+from .crud import (create_deposit, get_deposit, get_deposit_by_address, list_deposits, mark_deposit_claimed, create_transfer, get_transfer_by_provider, get_setting, set_setting, GLOBAL_WALLET_KEY)
 from lnbits.core.crud import get_wallet, get_user, get_accounts
 from lnbits.core.db import db as core_db
 from lnbits.db import Filters
+from . import db
 from .models import (
     DepositUtxosRequest,
     IdentifierRequest,
@@ -81,10 +82,7 @@ async def api_static_deposit():
 
 
 @sparkl2_api_router.post("/api/v1/transfers", dependencies=[Depends(check_user_exists)])
-async def api_transfers(data: TransfersRequest):
-    # The sidecar transfer query can be slow. Coalesce concurrent browser/component
-    # requests and briefly cache the provider response; this endpoint is read-only
-    # and the transfer view does not need sub-second freshness.
+async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
     global _transfers_cache, _transfers_cache_at
     now = time.monotonic()
     if _transfers_cache is not None and now - _transfers_cache_at < 15:
@@ -94,9 +92,24 @@ async def api_transfers(data: TransfersRequest):
         if _transfers_cache is not None and now - _transfers_cache_at < 15:
             return _transfers_cache
         result = await _call("transfers", _model_data(data, exclude_none=True))
-        _transfers_cache = result
+        provider_rows = result if isinstance(result, list) else result.get("transfers", result.get("data", result.get("items", []))) if isinstance(result, dict) else []
+        wallet_rows = await core_db.fetchall("SELECT wallets.id AS wallet_id, wallets.name AS wallet_name, accounts.id AS user_id, COALESCE(accounts.username, accounts.email, accounts.id) AS user_name FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.deleted = false")
+        wallet_map = {str(row["wallet_id"]): row for row in wallet_rows}
+        local_rows = await db.fetchall("SELECT wallet_id, direction, transaction_type, amount_sats, provider_txid, status FROM sparkl2.transfers ORDER BY created_at DESC LIMIT 100")
+        local_map = {str(row["provider_txid"]): row for row in local_rows if row.get("provider_txid")}
+        enriched = []
+        for row in provider_rows:
+            item = dict(row) if isinstance(row, dict) else {"provider": row}
+            provider_id = item.get("id") or item.get("transfer_id") or item.get("transaction_id")
+            local = local_map.get(str(provider_id))
+            if local:
+                item.update({"direction": local["direction"], "transaction_type": local["transaction_type"], "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "ledger_status": local["status"]})
+            else:
+                item.update({"direction": item.get("direction") or "credit" if item.get("receiverIdentityPublicKey") else item.get("direction") or "unknown", "transaction_type": item.get("transaction_type") or "spark", "wallet_id": None, "wallet_name": None, "wallet_user": None})
+            enriched.append(item)
+        _transfers_cache = enriched
         _transfers_cache_at = time.monotonic()
-        return result
+        return enriched
 
 
 @sparkl2_api_router.post("/api/v1/transfer", dependencies=[Depends(check_user_exists)])
@@ -121,9 +134,9 @@ async def api_transfer(data: SparkTransferRequest, user=Depends(check_user_exist
         )
     except Exception as exc:
         logger.error("Spark transfer {} succeeded but LNbits debit failed for wallet {}: {}", provider_txid, wallet.id, exc)
-        await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "provider_succeeded_debit_failed", result, data.memo)
+        await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "provider_succeeded_debit_failed", result, data.memo, transaction_type="spark", direction="debit")
         raise HTTPException(status_code=502, detail="Spark transfer succeeded, but LNbits wallet debit failed; administrator reconciliation is required") from exc
-    await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "submitted", result, data.memo)
+    await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "submitted", result, data.memo, transaction_type="spark", direction="debit")
     return {"transaction_id": provider_txid, "provider": result, "wallet_id": wallet.id, "debited_sats": data.amount_sats}
 
 
@@ -210,7 +223,7 @@ async def api_user_withdrawal(data: WithdrawalRequest, user=Depends(check_user_e
             transaction_key("onchain_send", provider_id or data.onchain_address, data.amount_sats),
             data.memo or "Bitcoin on-chain payment via funding source",
         )
-    await create_transfer(wallet.id, user.id, data.amount_sats or 0, data.onchain_address, provider_id, "submitted", result, data.memo)
+    await create_transfer(wallet.id, user.id, data.amount_sats or 0, data.onchain_address, provider_id, "submitted", result, data.memo, transaction_type="onchain", direction="debit")
     return {"status": "submitted", "wallet_id": wallet.id, "provider": result}
 
 

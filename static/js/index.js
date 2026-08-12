@@ -1,6 +1,13 @@
 const gate = window.__sparkl2RequestGate || (window.__sparkl2RequestGate = {status: null, transfers: null, statusAt: 0, transfersAt: 0})
 window.app.mixin({
-  data() { return { selectedWalletId: null, loading: false, sending: false, balance: null, identity: null, adminStatus: null, statusError: null, transferRows: [], globalWalletId: null, globalWallets: [], send: {amount_sats: null, address: '', memo: '', wallet_id: null}, onchain: {address: null, deposit_id: null, status: null, loading: false}, onchainRecords: [], btcSend: {address: '', amount_sats: null, memo: '', exit_speed: 'FAST'}, btcSending: false, transferColumns: [{name: 'status', label: 'Status', field: row => row.status || row.state || 'unknown'}, {name: 'amount', label: 'Amount (sats)', field: row => row.totalValue ?? row.amountSats ?? row.amount ?? ''}, {name: 'created', label: 'Created', field: row => row.userRequest?.createdAt || row.createdAt || ''}] } },
+  data() { return { selectedWalletId: null, loading: false, sending: false, balance: null, identity: null, adminStatus: null, statusError: null, transferRows: [], globalWalletId: null, globalWallets: [], send: {amount_sats: null, address: '', memo: '', wallet_id: null}, onchain: {address: null, deposit_id: null, status: null, loading: false}, onchainRecords: [], btcSend: {address: '', amount_sats: null, memo: '', exit_speed: 'FAST'}, btcSending: false, transferColumns: [
+      {name: 'direction', label: 'Direction', field: row => row.direction === 'debit' ? 'Debit' : row.direction === 'credit' ? 'Credit' : 'Unknown'},
+      {name: 'type', label: 'Type', field: row => row.transaction_type === 'onchain' ? 'On-chain' : row.transaction_type === 'spark' ? 'Spark' : row.transaction_type || 'Unknown'},
+      {name: 'wallet', label: 'LNbits wallet', field: row => row.wallet_user && row.wallet_name ? `${row.wallet_user} / ${row.wallet_name}` : row.wallet_name || row.wallet_id || 'Unattributed'},
+      {name: 'amount', label: 'Amount (sats)', field: row => row.amount_sats ?? row.totalValue ?? row.amountSats ?? row.amount ?? ''},
+      {name: 'status', label: 'Status', field: row => row.ledger_status || row.status || row.state || 'unknown'},
+      {name: 'created', label: 'Created', field: row => row.userRequest?.createdAt || row.createdAt || ''}
+    ] } },
   computed: { isAdmin() { return !!this.g.user?.admin }, walletOptions() { return (this.g.user?.wallets || []).map(w => ({label: w.name, value: w.id})) }, selectedWalletName() { return this.walletOptions.find(w => w.value === this.selectedWalletId)?.label || 'selected wallet' }, globalWalletGroups() { const groups = {}; for (const w of this.globalWallets) (groups[w.user_name] ||= []).push(w); return Object.entries(groups).map(([label, options]) => ({label, options})) }, canSend() { return !!this.send.wallet_id && Number(this.send.amount_sats) > 0 && !!this.send.address } },
   methods: {
     copy(v) { if (v) LNbits.utils.copyText(v, 'Copied address') },

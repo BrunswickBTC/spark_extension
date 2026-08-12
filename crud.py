@@ -58,7 +58,11 @@ async def mark_deposit_claimed(deposit_id: str, txid: str, amount_sats: int):
     await db.execute("UPDATE sparkl2.deposit_addresses SET status = 'credited', txid = :txid, amount_sats = :amount, claimed_at = CURRENT_TIMESTAMP WHERE id = :id AND status != 'credited'", {"id": deposit_id, "txid": txid, "amount": amount_sats})
 
 
-async def create_transfer(wallet_id: str, user_id: str, amount_sats: int, receiver: str, provider_txid: str | None, status: str, response, memo: str = ""):
-    row = {"id": uuid4().hex, "wallet_id": wallet_id, "user_id": user_id, "direction": "out", "amount_sats": amount_sats, "receiver_address": receiver, "provider_txid": provider_txid, "status": status, "provider_response": json.dumps({"memo": memo, "provider": response}, default=str)}
-    await db.execute("INSERT INTO sparkl2.transfers (id, wallet_id, user_id, direction, amount_sats, receiver_address, provider_txid, status, provider_response) VALUES (:id, :wallet_id, :user_id, :direction, :amount_sats, :receiver_address, :provider_txid, :status, :provider_response)", row)
+async def get_transfer_by_provider(provider_txid: str):
+    return await db.fetchone("SELECT * FROM sparkl2.transfers WHERE provider_txid = :provider_txid LIMIT 1", {"provider_txid": provider_txid})
+
+
+async def create_transfer(wallet_id: str, user_id: str, amount_sats: int, receiver: str, provider_txid: str | None, status: str, response, memo: str = "", transaction_type: str = "spark", direction: str = "debit"):
+    row = {"id": uuid4().hex, "wallet_id": wallet_id, "user_id": user_id, "direction": direction, "transaction_type": transaction_type, "amount_sats": amount_sats, "receiver_address": receiver, "provider_txid": provider_txid, "status": status, "provider_response": json.dumps({"memo": memo, "provider": response}, default=str)}
+    await db.execute("INSERT INTO sparkl2.transfers (id, wallet_id, user_id, direction, transaction_type, amount_sats, receiver_address, provider_txid, status, provider_response) VALUES (:id, :wallet_id, :user_id, :direction, :transaction_type, :amount_sats, :receiver_address, :provider_txid, :status, :provider_response)", row)
     return await db.fetchone("SELECT * FROM sparkl2.transfers WHERE id = :id", {"id": row["id"]})

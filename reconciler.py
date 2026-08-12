@@ -7,16 +7,19 @@ from bolt11 import decode as bolt11_decode
 from loguru import logger
 
 from lnbits.core.crud import create_payment, get_wallet
+from lnbits.core.db import db as core_db
 from lnbits.core.models import CreatePayment, PaymentState
 from lnbits.wallets import fake_wallet
 
 from .client import SparkSidecarClient
 from .crud import (
     GLOBAL_WALLET_KEY,
+    create_transfer,
     get_setting,
     list_reconcilable_deposits,
     mark_deposit_credited,
     reserve_deposit,
+    get_transfer_by_provider,
 )
 from .events import publish
 
@@ -103,6 +106,7 @@ async def reconcile_onchain(client: SparkSidecarClient) -> None:
                 f"Spark on-chain deposit {txid}:{vout}",
             )
             await mark_deposit_credited(record["id"], txid, vout, int(amount_sats))
+            await create_transfer(record["wallet_id"], record["user_id"], int(amount_sats), record["address"], txid, "credited", {"txid": txid, "vout": vout}, f"Spark on-chain deposit {txid}:{vout}", transaction_type="onchain", direction="credit")
             publish({"type": "onchain_credited", "deposit_id": record["id"], "txid": txid, "vout": vout, "amount_sats": int(amount_sats), "credited": credited})
         except Exception as exc:
             logger.warning("Spark on-chain reconciliation failed for {}: {}", record.get("id"), exc)
@@ -141,7 +145,11 @@ async def reconcile_spark_transfers(client: SparkSidecarClient) -> None:
             continue
         amount = int(amount)
         memo = SPARK_RECEIVE_MEMO
+        if await get_transfer_by_provider(txid):
+            continue
         credited = await record_internal_credit(wallet, amount, transaction_key("spark_receive", txid), memo)
+        receive_user = await core_db.fetchone("SELECT accounts.id AS user_id FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.id = :wallet_id", {"wallet_id": wallet_id})
+        await create_transfer(wallet_id, receive_user["user_id"] if receive_user else "unknown", amount, str(receiver_identity), txid, "credited", transfer, memo, transaction_type="spark", direction="credit")
         publish({"type": "spark_received", "transaction_id": txid, "amount_sats": amount, "wallet_id": wallet_id, "credited": credited})
 
 

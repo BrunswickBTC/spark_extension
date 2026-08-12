@@ -18,7 +18,7 @@ async def _ensure_tables(db: Database):
     await db.execute(f"""
         CREATE TABLE IF NOT EXISTS {db.schema}.transfers (
             id TEXT PRIMARY KEY, wallet_id TEXT NOT NULL, user_id TEXT NOT NULL,
-            direction TEXT NOT NULL, amount_sats {db.big_int}, receiver_address TEXT,
+            direction TEXT NOT NULL, transaction_type TEXT NOT NULL DEFAULT 'spark', amount_sats {db.big_int}, receiver_address TEXT,
             provider_txid TEXT, status TEXT NOT NULL, provider_response TEXT,
             created_at TIMESTAMP NOT NULL DEFAULT {db.timestamp_now}
         )
@@ -53,5 +53,16 @@ async def m004_repair_reconciliation_schema(db: Database):
     """)
     try:
         await db.execute(f"ALTER TABLE {db.schema}.deposit_addresses ADD COLUMN vout INTEGER")
+    except Exception:
+        pass
+    try:
+        await db.execute(f"ALTER TABLE {db.schema}.transfers ADD COLUMN transaction_type TEXT NOT NULL DEFAULT 'spark'")
+    except Exception:
+        pass
+
+
+async def m005_transfer_metadata(db: Database):
+    try:
+        await db.execute(f"ALTER TABLE {db.schema}.transfers ADD COLUMN transaction_type TEXT NOT NULL DEFAULT 'spark'")
     except Exception:
         pass
