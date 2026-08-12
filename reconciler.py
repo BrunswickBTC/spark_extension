@@ -54,8 +54,19 @@ def _text_identity(value: Any) -> str | None:
     return str(value).lower() if value is not None else None
 
 
-def _transfer_status(transfer: dict[str, Any]) -> str:
-    return str(transfer.get("status") or _nested_value(transfer.get("userRequest"), "status") or "").upper()
+def _is_direct_incoming_spark_transfer(transfer: dict[str, Any], local_identity: str | None) -> bool:
+    transfer_type = str(transfer.get("type") or "").upper()
+    direction = str(transfer.get("transferDirection") or transfer.get("transfer_direction") or "").upper()
+    request = transfer.get("userRequest") if isinstance(transfer.get("userRequest"), dict) else {}
+    request_kind = str(request.get("type") or request.get("requestType") or "").upper()
+    if transfer_type not in {"TRANSFER", "SPARK_TRANSFER"}:
+        return False
+    if direction not in {"INCOMING", "IN"}:
+        return False
+    if request_kind in {"LIGHTNING_RECEIVE", "LIGHTNING_SEND", "COOP_EXIT", "CLAIM_STATIC_DEPOSIT", "LEAVES_SWAP"}:
+        return False
+    receiver = _text_identity(transfer.get("receiverIdentityPublicKey") or transfer.get("receiver_identity_public_key") or request.get("receiverIdentityPublicKey") or request.get("receiver_identity_public_key"))
+    return bool(receiver and local_identity and receiver == local_identity)
 
 def parse_utxo(utxo: dict[str, Any]) -> tuple[str, int, int]:
     txid, vout, amount = utxo.get("txid"), utxo.get("vout"), utxo.get("amount_sats")
@@ -152,16 +163,14 @@ async def reconcile_spark_transfers(client: SparkSidecarClient) -> None:
     for transfer in transfers:
         if not isinstance(transfer, dict):
             continue
-        status = _transfer_status(transfer)
+        status = str(transfer.get("status") or _nested_value(transfer.get("userRequest"), "status") or "").upper()
         if status not in {"COMPLETED", "TRANSFER_COMPLETED", "TRANSFER_STATUS_COMPLETED"}:
             logger.debug("Skipping Spark transfer {} with status {}", transfer.get("id") or transfer.get("transfer_id"), status)
             continue
-        request = transfer.get("userRequest") if isinstance(transfer.get("userRequest"), dict) else {}
-        receiver = _text_identity(transfer.get("receiverIdentityPublicKey") or transfer.get("receiver_identity_public_key") or request.get("receiverIdentityPublicKey") or request.get("receiver_identity_public_key"))
-        expected_receiver = _text_identity(receiver_identity)
-        if receiver and expected_receiver and receiver != expected_receiver:
-            logger.debug("Skipping Spark transfer {}: receiver {} != local identity {}", transfer.get("id") or transfer.get("transfer_id"), receiver, expected_receiver)
+        if not _is_direct_incoming_spark_transfer(transfer, _text_identity(receiver_identity)):
+            logger.debug("Skipping non-direct incoming Spark transfer {} type={} direction={}", transfer.get("id") or transfer.get("transfer_id"), transfer.get("type"), transfer.get("transferDirection"))
             continue
+        request = transfer.get("userRequest") if isinstance(transfer.get("userRequest"), dict) else {}
         amount = transfer.get("totalValue") or transfer.get("total_value") or transfer.get("amountSats") or request.get("amountSats") or request.get("amount_sats")
         txid = transfer.get("id") or transfer.get("transfer_id") or transfer.get("transaction_id")
         if not txid or not amount:
