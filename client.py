@@ -6,7 +6,7 @@ import httpx
 from lnbits.settings import settings
 
 
-_READ_ONLY_ROUTES = {
+_ROUTES = {
     "balance": ("POST", "/v1/balance"),
     "identity": ("GET", "/v1/identity"),
     "settings": ("GET", "/v1/settings"),
@@ -15,17 +15,22 @@ _READ_ONLY_ROUTES = {
     "static_deposit": ("GET", "/v1/deposit/static"),
     "static_addresses": ("GET", "/v1/deposit/static/addresses"),
     "deposit_utxos": ("POST", "/v1/deposit/utxos"),
+    "deposit_claim": ("POST", "/v1/deposit/claim"),
     "transfers": ("POST", "/v1/transfers/list"),
-    "transfer": ("POST", "/v1/transfer/get"),
+    "transfer": ("POST", "/v1/transfer"),
+    "transfer_get": ("POST", "/v1/transfer/get"),
     "transfer_ssp": ("POST", "/v1/transfer/ssp"),
-    "withdrawal": ("POST", "/v1/withdraw/get"),
+    "token_transfer": ("POST", "/v1/tokens/transfer"),
     "token_transactions": ("POST", "/v1/tokens/transactions"),
+    "withdrawal_quote": ("POST", "/v1/withdraw/quote"),
+    "withdrawal": ("POST", "/v1/withdraw"),
+    "withdrawal_get": ("POST", "/v1/withdraw/get"),
 }
 
 
 def sidecar_path(operation: str) -> tuple[str, str]:
     try:
-        return _READ_ONLY_ROUTES[operation]
+        return _ROUTES[operation]
     except KeyError as exc:
         raise ValueError(f"Unsupported Spark sidecar route: {operation}") from exc
 

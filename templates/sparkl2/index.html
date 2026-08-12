@@ -1,48 +1,16 @@
-{% extends "base.html" %}
-{% block page %}{% raw %}
+{% extends "base.html" %} {% from "macros.jinja" import window_vars with context %}
+{% block page %}
 <div class="row q-col-gutter-md">
-  <div class="col-12">
-    <q-card><q-card-section>
-      <div class="row items-center no-wrap">
-        <div class="col"><h5 class="text-subtitle1 q-my-none">Spark L2 Management</h5><div class="text-caption q-mt-sm">Read-only provider diagnostics. Values come directly from the Spark sidecar.</div></div>
-        <div class="col-auto"><q-btn flat round icon="refresh" :loading="loading" @click="loadAll"><q-tooltip>Refresh</q-tooltip></q-btn></div>
-      </div>
-    </q-card-section></q-card>
-  </div>
-  <div class="col-12 col-md-4"><q-card><q-card-section><div class="text-subtitle1">Spendable balance</div></q-card-section><q-card-section class="q-pt-none"><div v-if="balance" class="text-h4">{{ balance.balance_sats || '0' }} sats</div><div v-else class="text-grey">{{ errors.balance || 'Loading…' }}</div><div v-if="balance && balance.balance_msat" class="text-caption">{{ balance.balance_msat }} msat</div></q-card-section></q-card></div>
-  <div class="col-12 col-md-8"><q-card><q-card-section><div class="text-subtitle1">Identity</div></q-card-section><q-card-section class="q-pt-none"><div v-if="identity"><b>Spark address:</b> <code class="break-word">{{ identity.spark_address }}</code></div><div v-if="identity" class="q-mt-sm"><b>Identity public key:</b> <code class="break-word">{{ identity.identity_public_key }}</code></div><div v-if="!identity" class="text-grey">{{ errors.identity || 'Loading…' }}</div></q-card-section></q-card></div>
-  <div class="col-12 col-md-6"><q-card><q-card-section><div class="text-subtitle1">Wallet settings</div></q-card-section><q-card-section class="q-pt-none"><pre v-if="settings">{{ pretty(settings) }}</pre><div v-else class="text-grey">{{ errors.settings || 'Loading…' }}</div></q-card-section></q-card></div>
-  <div class="col-12 col-md-6"><q-card><q-card-section><div class="text-subtitle1">Optimization status</div></q-card-section><q-card-section class="q-pt-none"><pre v-if="optimization">{{ pretty(optimization) }}</pre><div v-else class="text-grey">{{ errors.optimization || 'Loading…' }}</div></q-card-section></q-card></div>
-  <div class="col-12 col-md-6"><q-card><q-card-section><div class="text-subtitle1">Deposit addresses</div></q-card-section><q-card-section class="q-pt-none"><div v-if="deposits.single"><b>Single-use:</b><br><code class="break-word">{{ deposits.single.address }}</code></div><div v-if="deposits.static" class="q-mt-md"><b>Static:</b><br><code class="break-word">{{ deposits.static.address }}</code></div><div v-if="!deposits.single && !deposits.static" class="text-grey">{{ errors.deposits || 'Loading…' }}</div></q-card-section></q-card></div>
-  <div class="col-12 col-md-6"><q-card><q-card-section><div class="text-subtitle1">Static address list</div></q-card-section><q-card-section class="q-pt-none"><pre v-if="deposits.addresses">{{ pretty(deposits.addresses) }}</pre><div v-else class="text-grey">{{ errors.addresses || 'Loading…' }}</div></q-card-section></q-card></div>
-  <div class="col-12"><q-card><q-card-section><div class="text-subtitle1">Recent Spark transfers</div></q-card-section><q-card-section class="q-pt-none"><q-table v-if="transfers" flat dense :rows="transferRows" :columns="transferColumns" row-key="id" :pagination="{rowsPerPage: 10}"><template v-slot:body-cell-id="props"><q-td :props="props"><code>{{ props.value }}</code></q-td></template><template v-slot:body-cell-status="props"><q-td :props="props"><q-badge>{{ props.value || 'unknown' }}</q-badge></q-td></template><template v-slot:body-cell-amount="props"><q-td :props="props">{{ props.row.totalValue ?? props.row.amountSats ?? props.row.amount_sats ?? props.row.amount ?? '' }} sats</q-td></template><template v-slot:body-cell-created="props"><q-td :props="props">{{ props.row.userRequest?.createdAt || props.row.createdAt || props.row.created_at || props.row.created || '' }}</q-td></template></q-table><div v-else class="text-grey">{{ errors.transfers || 'Loading…' }}</div></q-card-section></q-card></div>
+  <div class="col-12"><q-card><q-card-section class="row items-center q-gutter-md"><div class="col"><div class="text-h5">Spark L2</div><div class="text-caption">Spark operations for the selected LNbits wallet</div></div><q-select v-model="selectedWalletId" @update:model-value="send.wallet_id = $event" filled dense emit-value map-options :options="walletOptions" label="Wallet" class="col-12 col-sm-4"></q-select></q-card-section></q-card></div>
+  <div class="col-12 col-md-6"><q-card><q-card-section><div class="text-subtitle1">Wallet status</div></q-card-section><q-card-section><div v-if="balance" class="text-h4"><span v-text="balance.balance_sats || '0'"></span> sats</div><div v-else class="text-grey" v-text="statusError || 'Loading…'"></div><div v-if="identity" class="text-caption q-mt-sm break-word">Receive address: <code v-text="identity.spark_address"></code></div></q-card-section></q-card></div>
+  <div class="col-12 col-md-6"><q-card><q-card-section><div class="row items-center"><div class="text-subtitle1">Receive</div><q-space></q-space><q-btn flat icon="refresh" :loading="loading" @click="loadStatus"></q-btn></div></q-card-section><q-card-section><q-input readonly outlined label="Spark address" :model-value="identity && identity.spark_address || ''"><template v-slot:append><q-btn flat round icon="content_copy" @click="copy(identity && identity.spark_address)"></q-btn></template></q-input><div class="text-caption text-grey q-mt-sm">Spark receiving is administered centrally because this sidecar has one Spark identity.</div></q-card-section></q-card></div>
+  <div class="col-12 col-md-6"><q-card><q-card-section><div class="text-subtitle1">Receive Bitcoin on-chain</div><div class="text-caption text-grey">Generate a one-time Bitcoin address assigned to the selected LNbits wallet.</div><q-btn class="q-mt-sm" unelevated color="primary" label="Generate one-time address" :loading="onchain.loading" @click="issueOnchainAddress"></q-btn><q-input v-if="onchain.address" class="q-mt-sm" readonly outlined label="Assigned Bitcoin address" :model-value="onchain.address"><template v-slot:append><q-btn flat round icon="content_copy" @click="copy(onchain.address)"></q-btn></template></q-input><div class="text-caption text-grey q-mt-sm">The sidecar deposit/claim record indexes this address to the selected user and wallet.</div></q-card></div><div class="col-12 col-md-6"><q-card><q-card-section><div class="text-subtitle1">Send Spark sats</div><div class="text-caption text-grey">The shared sidecar performs the transfer; LNbits records it against the selected wallet and user.</div></q-card-section><q-card-section class="q-gutter-y-sm"><q-input v-model.number="send.amount_sats" type="number" min="1" filled label="Amount (sats)"></q-input><q-input v-model.trim="send.address" filled label="Destination Spark address"></q-input><q-btn unelevated color="primary" label="Send sats" :disable="!canSend || sending" :loading="sending" @click="sendSats"></q-btn></q-card-section></q-card></div>
+  <div class="col-12 col-md-6"><q-card><q-card-section><div class="text-subtitle1">Spark token transfer</div><div class="text-caption text-grey">Specify token identifier, amount, and destination Spark address.</div></q-card-section><q-card-section class="q-gutter-y-sm"><q-input v-model.trim="token.identifier" filled label="Token identifier"></q-input><q-input v-model="token.amount" type="number" min="1" filled label="Token amount"></q-input><q-input v-model.trim="token.address" filled label="Destination Spark address"></q-input><q-btn unelevated color="primary" label="Send tokens" :disable="!canSendToken || sendingToken" :loading="sendingToken" @click="sendTokens"></q-btn></q-card-section></q-card></div>
+  <div class="col-12"><q-card><q-card-section><div class="row items-center"><div class="text-subtitle1">Recent transfers</div><q-space></q-space><q-btn flat icon="refresh" @click="loadTransfers"></q-btn></div></q-card-section><q-card-section><q-table flat dense :rows="transferRows" :columns="transferColumns" row-key="id" :pagination="{rowsPerPage: 10}"></q-table></q-card-section></q-card></div>
+  <div v-if="isAdmin" class="col-12"><q-expansion-item icon="admin_panel_settings" label="Administrator status" group="spark-status"><q-card><q-card-section><pre class="break-word" v-text="pretty(adminStatus)"></pre></q-card-section></q-card></q-expansion-item></div>
 </div>
-<style>.break-word { word-break: break-all; white-space: pre-wrap; } pre { white-space: pre-wrap; word-break: break-word; margin: 0; }</style>
-
-<style>.break-word { word-break: break-all; white-space: pre-wrap; } pre { white-space: pre-wrap; word-break: break-word; margin: 0; }</style>
-{% endraw %}{% endblock %}
-{% block scripts %}
-<script>
-window.app = Vue.createApp({
-  el: '#vue',
-  data() { return { loading: false, balance: null, identity: null, settings: null, optimization: null, deposits: {single: null, static: null, addresses: null}, transfers: null, errors: {}, transferColumns: [
-    {name: 'id', label: 'ID', field: 'id', align: 'left'},
-    {name: 'status', label: 'Status', field: row => row.status || row.state || 'unknown', align: 'left'},
-    {name: 'amount', label: 'Amount', field: row => row.totalValue ?? row.amountSats ?? row.amount_sats ?? row.amount ?? '', align: 'right', format: value => value === '' ? '' : `${value} sats`},
-    {name: 'created', label: 'Created', field: row => row.userRequest?.createdAt || row.createdAt || row.created_at || row.created || '', align: 'left', format: value => value ? new Date(value).toLocaleString() : ''}
-  ]}},
-  computed: { transferRows() { if (Array.isArray(this.transfers)) return this.transfers; return this.transfers?.transfers || this.transfers?.data || this.transfers?.items || [] } },
-  methods: {
-    pretty(value) { return JSON.stringify(value, null, 2) },
-    setValue(path, value) { const parts = path.split('.'); let target = this; for (let i = 0; i < parts.length - 1; i++) target = target[parts[i]]; target[parts[parts.length - 1]] = value },
-    setError(path, message) { const parts = path.split('.'); let target = this.errors; for (let i = 0; i < parts.length - 1; i++) target = target[parts[i]] || (target[parts[i]] = {}); target[parts[parts.length - 1]] = message },
-    async get(path, key) { try { const response = await LNbits.api.request('GET', path); this.setValue(key, response.data) } catch (error) { this.setError(key, error.response?.status ? `HTTP ${error.response.status}` : error.message); LNbits.utils.notifyApiError(error) } },
-    async post(path, body, key) { try { const response = await LNbits.api.request('POST', path, null, body); this.setValue(key, response.data) } catch (error) { this.setError(key, error.response?.status ? `HTTP ${error.response.status}` : error.message); LNbits.utils.notifyApiError(error) } },
-    async loadAll() { this.loading = true; this.errors = {}; await Promise.all([
-      this.post('/sparkl2/api/v1/balance', {}, 'balance'), this.get('/sparkl2/api/v1/identity', 'identity'), this.get('/sparkl2/api/v1/settings', 'settings'), this.get('/sparkl2/api/v1/optimization', 'optimization'), this.get('/sparkl2/api/v1/deposit/single-use', 'deposits.single'), this.get('/sparkl2/api/v1/deposit/static', 'deposits.static'), this.get('/sparkl2/api/v1/deposit/static/addresses', 'deposits.addresses'), this.post('/sparkl2/api/v1/transfers', {limit: 100, offset: 0}, 'transfers')
-    ]); this.loading = false }
-  },
-  mounted() { this.loadAll() }
-})
-</script>
+<style>.break-word{word-break:break-all;white-space:normal}pre{white-space:pre-wrap;word-break:break-word}</style>
+{% endblock %}
+{% block scripts %} {{ window_vars(user) }}
+<script src="{{ static_url_for('sparkl2/static', path='js/index.js') }}"></script>
 {% endblock %}
