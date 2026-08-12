@@ -1,7 +1,7 @@
 const gate = window.__sparkl2RequestGate || (window.__sparkl2RequestGate = {status: null, transfers: null, statusAt: 0, transfersAt: 0})
 window.app.mixin({
   data() { return { selectedWalletId: null, loading: false, sending: false, balance: null, identity: null, adminStatus: null, statusError: null, transferRows: [], send: {amount_sats: null, address: '', wallet_id: null}, onchain: {address: null, deposit_id: null, status: null, loading: false}, onchainRecords: [], btcSend: {address: '', amount_sats: null, exit_speed: 'FAST'}, btcSending: false, transferColumns: [{name: 'status', label: 'Status', field: row => row.status || row.state || 'unknown'}, {name: 'amount', label: 'Amount (sats)', field: row => row.totalValue ?? row.amountSats ?? row.amount ?? ''}, {name: 'created', label: 'Created', field: row => row.userRequest?.createdAt || row.createdAt || ''}] } },
-  computed: { isAdmin() { return !!this.g.user?.admin }, walletOptions() { return (this.g.user?.wallets || []).map(w => ({label: w.name, value: w.id})) }, canSend() { return !!this.send.wallet_id && Number(this.send.amount_sats) > 0 && !!this.send.address } },
+  computed: { isAdmin() { return !!this.g.user?.admin }, walletOptions() { return (this.g.user?.wallets || []).map(w => ({label: w.name, value: w.id})) }, selectedWalletName() { return this.walletOptions.find(w => w.value === this.selectedWalletId)?.label || 'selected wallet' }, canSend() { return !!this.send.wallet_id && Number(this.send.amount_sats) > 0 && !!this.send.address } },
   methods: {
     copy(v) { if (v) LNbits.utils.copyText(v, 'Copied address') },
     async request(method, path, body) { return (await LNbits.api.request(method, path, null, body)).data },
