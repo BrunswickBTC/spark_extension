@@ -219,6 +219,14 @@ async def api_token_transfer(data: TokenTransferRequest):
     return await _call("token_transfer", _model_data(data, exclude_none=True))
 
 
+@sparkl2_api_router.post("/api/v1/withdrawal/quote/user", dependencies=[Depends(check_user_exists)])
+async def api_user_withdrawal_quote(data: WithdrawalQuoteRequest, user=Depends(check_user_exists)):
+    wallet = next((w for w in user.wallets if w.id == getattr(data, "wallet_id", None)), None)
+    if not wallet:
+        raise HTTPException(status_code=403, detail="Wallet does not belong to this user")
+    return await _call("withdrawal_quote", _model_data(data, exclude_none=True))
+
+
 @sparkl2_api_router.post("/api/v1/withdrawal/quote", dependencies=[Depends(check_admin)])
 async def api_withdrawal_quote(data: WithdrawalQuoteRequest):
     return await _call("withdrawal_quote", _model_data(data))
