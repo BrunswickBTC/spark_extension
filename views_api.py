@@ -12,6 +12,13 @@ from .models import DepositUtxosRequest, IdentifierRequest, TokenTransactionsReq
 sparkl2_api_router = APIRouter()
 
 
+def _model_data(model: Any, *, exclude_none: bool = False) -> dict[str, Any]:
+    """Serialize models across the Pydantic v1/v2 versions supported by LNbits."""
+    if hasattr(model, "model_dump"):
+        return model.model_dump(exclude_none=exclude_none)
+    return model.dict(exclude_none=exclude_none)
+
+
 async def _call(operation: str, payload: dict[str, Any] | None = None) -> Any:
     client = SparkSidecarClient()
     try:
@@ -25,7 +32,7 @@ async def _call(operation: str, payload: dict[str, Any] | None = None) -> Any:
         await client.close()
 
 
-@sparkl2_api_router.get("/api/v1/balance", dependencies=[Depends(check_admin)])
+@sparkl2_api_router.post("/api/v1/balance", dependencies=[Depends(check_admin)])
 async def api_balance():
     return await _call("balance")
 
@@ -62,29 +69,29 @@ async def api_static_addresses():
 
 @sparkl2_api_router.post("/api/v1/deposit/utxos", dependencies=[Depends(check_admin)])
 async def api_deposit_utxos(data: DepositUtxosRequest):
-    return await _call("deposit_utxos", data.model_dump(exclude_none=True))
+    return await _call("deposit_utxos", _model_data(data, exclude_none=True))
 
 
 @sparkl2_api_router.post("/api/v1/transfers", dependencies=[Depends(check_admin)])
 async def api_transfers(data: TransfersRequest):
-    return await _call("transfers", data.model_dump(exclude_none=True))
+    return await _call("transfers", _model_data(data, exclude_none=True))
 
 
 @sparkl2_api_router.post("/api/v1/transfer", dependencies=[Depends(check_admin)])
 async def api_transfer(data: IdentifierRequest):
-    return await _call("transfer", data.model_dump())
+    return await _call("transfer", _model_data(data))
 
 
 @sparkl2_api_router.post("/api/v1/transfer/ssp", dependencies=[Depends(check_admin)])
 async def api_transfer_ssp(data: IdentifierRequest):
-    return await _call("transfer_ssp", data.model_dump())
+    return await _call("transfer_ssp", _model_data(data))
 
 
 @sparkl2_api_router.post("/api/v1/withdrawal", dependencies=[Depends(check_admin)])
 async def api_withdrawal(data: IdentifierRequest):
-    return await _call("withdrawal", data.model_dump())
+    return await _call("withdrawal", _model_data(data))
 
 
 @sparkl2_api_router.post("/api/v1/tokens/transactions", dependencies=[Depends(check_admin)])
 async def api_token_transactions(data: TokenTransactionsRequest):
-    return await _call("token_transactions", data.model_dump(exclude_none=True))
+    return await _call("token_transactions", _model_data(data, exclude_none=True))
