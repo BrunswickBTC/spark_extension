@@ -65,3 +65,12 @@ async def m005_transfer_metadata(db: Database):
         await db.execute(f"ALTER TABLE {db.schema}.transfers ADD COLUMN source TEXT NOT NULL DEFAULT '#spark-l2'")
     except Exception:
         pass
+
+
+async def m006_repair_transfer_source(db: Database):
+    """Ensure transfer source metadata exists on already-migrated installations."""
+    await db.execute(f"CREATE TABLE IF NOT EXISTS {db.schema}.transfers (id TEXT PRIMARY KEY, wallet_id TEXT NOT NULL, user_id TEXT NOT NULL, direction TEXT NOT NULL, transaction_type TEXT NOT NULL DEFAULT 'spark', source TEXT NOT NULL DEFAULT '#spark-l2', amount_sats {db.big_int}, receiver_address TEXT, provider_txid TEXT, status TEXT NOT NULL, provider_response TEXT, created_at TIMESTAMP NOT NULL DEFAULT {db.timestamp_now})")
+    try:
+        await db.execute(f"ALTER TABLE {db.schema}.transfers ADD COLUMN source TEXT NOT NULL DEFAULT '#spark-l2'")
+    except Exception:
+        pass
