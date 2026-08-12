@@ -37,6 +37,26 @@ def credit_key(deposit_id: str, txid: str, vout: int) -> str:
     return transaction_key("onchain", deposit_id, txid, vout)
 
 
+def _nested_value(value: Any, *keys: str):
+    if not isinstance(value, dict):
+        return None
+    for key in keys:
+        if value.get(key) is not None:
+            return value[key]
+    return None
+
+
+def _text_identity(value: Any) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("value") or value.get("hex") or value.get("publicKey") or value.get("identityPublicKey")
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).hex()
+    return str(value).lower() if value is not None else None
+
+
+def _transfer_status(transfer: dict[str, Any]) -> str:
+    return str(transfer.get("status") or _nested_value(transfer.get("userRequest"), "status") or "").upper()
+
 def parse_utxo(utxo: dict[str, Any]) -> tuple[str, int, int]:
     txid, vout, amount = utxo.get("txid"), utxo.get("vout"), utxo.get("amount_sats")
     if not isinstance(txid, str) or not txid:
@@ -127,32 +147,39 @@ async def reconcile_spark_transfers(client: SparkSidecarClient) -> None:
     if not receiver_identity:
         return
     result = await client.request("transfers", {"limit": 100, "offset": 0})
-    transfers = result.get("transfers", []) if isinstance(result, dict) else []
+    transfers = result.get("transfers", []) if isinstance(result, dict) else result if isinstance(result, list) else []
+    logger.info("Spark receive reconciliation: selected_wallet={} provider_transfers={}", wallet_id, len(transfers))
     for transfer in transfers:
         if not isinstance(transfer, dict):
             continue
-        status = str(transfer.get("status", "")).upper()
-        if status not in {"COMPLETED", "TRANSFER_COMPLETED"}:
+        status = _transfer_status(transfer)
+        if status not in {"COMPLETED", "TRANSFER_COMPLETED", "TRANSFER_STATUS_COMPLETED"}:
+            logger.debug("Skipping Spark transfer {} with status {}", transfer.get("id") or transfer.get("transfer_id"), status)
             continue
-        receiver = transfer.get("receiverIdentityPublicKey") or transfer.get("receiver_identity_public_key") or (transfer.get("userRequest") or {}).get("receiverIdentityPublicKey") or (transfer.get("userRequest") or {}).get("receiver_identity_public_key")
-        if isinstance(receiver, dict):
-            receiver = receiver.get("value") or receiver.get("hex")
-        if isinstance(receiver, (bytes, bytearray)):
-            receiver = bytes(receiver).hex()
-        if receiver and str(receiver).lower() != str(receiver_identity).lower():
+        request = transfer.get("userRequest") if isinstance(transfer.get("userRequest"), dict) else {}
+        receiver = _text_identity(transfer.get("receiverIdentityPublicKey") or transfer.get("receiver_identity_public_key") or request.get("receiverIdentityPublicKey") or request.get("receiver_identity_public_key"))
+        expected_receiver = _text_identity(receiver_identity)
+        if receiver and expected_receiver and receiver != expected_receiver:
+            logger.debug("Skipping Spark transfer {}: receiver {} != local identity {}", transfer.get("id") or transfer.get("transfer_id"), receiver, expected_receiver)
             continue
-        amount = transfer.get("totalValue") or transfer.get("total_value") or transfer.get("amountSats") or (transfer.get("userRequest") or {}).get("amountSats")
-        txid = transfer.get("id") or transfer.get("transfer_id")
+        amount = transfer.get("totalValue") or transfer.get("total_value") or transfer.get("amountSats") or request.get("amountSats") or request.get("amount_sats")
+        txid = transfer.get("id") or transfer.get("transfer_id") or transfer.get("transaction_id")
         if not txid or not amount:
+            logger.warning("Skipping Spark transfer with missing id/amount: {}", transfer)
             continue
         amount = int(amount)
         memo = SPARK_RECEIVE_MEMO
         if await get_transfer_by_provider(txid):
+            logger.debug("Spark transfer {} already has a local audit record", txid)
             continue
-        credited = await record_internal_credit(wallet, amount, transaction_key("spark_receive", txid), memo)
-        receive_user = await core_db.fetchone("SELECT accounts.id AS user_id FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.id = :wallet_id", {"wallet_id": wallet_id})
-        await create_transfer(wallet_id, receive_user["user_id"] if receive_user else "unknown", amount, str(receiver_identity), txid, "credited", transfer, memo, transaction_type="spark", direction="credit", source="#spark-l2")
-        publish({"type": "spark_received", "transaction_id": txid, "amount_sats": amount, "wallet_id": wallet_id, "credited": credited})
+        try:
+            credited = await record_internal_credit(wallet, amount, transaction_key("spark_receive", txid), memo)
+            receive_user = await core_db.fetchone("SELECT accounts.id AS user_id FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.id = :wallet_id", {"wallet_id": wallet_id})
+            await create_transfer(wallet_id, receive_user["user_id"] if receive_user else "unknown", amount, str(receiver_identity), txid, "credited", transfer, memo, transaction_type="spark", direction="credit", source="#spark-l2")
+            logger.info("Credited incoming Spark transfer {}: {} sats to wallet {} (new_credit={})", txid, amount, wallet_id, credited)
+            publish({"type": "spark_received", "transaction_id": txid, "amount_sats": amount, "wallet_id": wallet_id, "credited": credited})
+        except Exception:
+            logger.exception("Failed to credit incoming Spark transfer {} to wallet {}", txid, wallet_id)
 
 
 async def reconcile_once() -> None:
