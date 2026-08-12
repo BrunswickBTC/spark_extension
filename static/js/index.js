@@ -3,6 +3,7 @@ window.app.mixin({
   data() { return { selectedWalletId: null, loading: false, sending: false, balance: null, identity: null, adminStatus: null, statusError: null, transferRows: [], globalWalletId: null, globalWallets: [], send: {amount_sats: null, address: '', memo: '', wallet_id: null}, onchain: {address: null, deposit_id: null, status: null, loading: false}, onchainRecords: [], btcSend: {address: '', amount_sats: null, memo: '', exit_speed: 'FAST'}, btcSending: false, transferColumns: [
       {name: 'direction', label: 'Direction', field: row => row.direction === 'debit' ? 'Debit' : row.direction === 'credit' ? 'Credit' : 'Unknown'},
       {name: 'type', label: 'Type', field: row => row.transaction_type === 'onchain' ? 'On-chain' : row.transaction_type === 'spark' ? 'Spark' : row.transaction_type || 'Unknown'},
+      {name: 'source', label: 'Source', field: row => row.source || '#spark-l2'},
       {name: 'wallet', label: 'LNbits wallet', field: row => row.wallet_user && row.wallet_name ? `${row.wallet_user} / ${row.wallet_name}` : row.wallet_name || row.wallet_id || 'Unattributed'},
       {name: 'amount', label: 'Amount (sats)', field: row => row.amount_sats ?? row.totalValue ?? row.amountSats ?? row.amount ?? ''},
       {name: 'status', label: 'Status', field: row => row.ledger_status || row.status || row.state || 'unknown'},

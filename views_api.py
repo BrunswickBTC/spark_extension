@@ -95,7 +95,7 @@ async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
         provider_rows = result if isinstance(result, list) else result.get("transfers", result.get("data", result.get("items", []))) if isinstance(result, dict) else []
         wallet_rows = await core_db.fetchall("SELECT wallets.id AS wallet_id, wallets.name AS wallet_name, accounts.id AS user_id, COALESCE(accounts.username, accounts.email, accounts.id) AS user_name FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.deleted = false")
         wallet_map = {str(row["wallet_id"]): row for row in wallet_rows}
-        local_rows = await db.fetchall("SELECT wallet_id, direction, transaction_type, amount_sats, provider_txid, status FROM sparkl2.transfers ORDER BY created_at DESC LIMIT 100")
+        local_rows = await db.fetchall("SELECT wallet_id, direction, transaction_type, source, amount_sats, provider_txid, status FROM sparkl2.transfers ORDER BY created_at DESC LIMIT 100")
         local_map = {str(row["provider_txid"]): row for row in local_rows if row.get("provider_txid")}
         enriched = []
         for row in provider_rows:
@@ -103,9 +103,9 @@ async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
             provider_id = item.get("id") or item.get("transfer_id") or item.get("transaction_id")
             local = local_map.get(str(provider_id))
             if local:
-                item.update({"direction": local["direction"], "transaction_type": local["transaction_type"], "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "ledger_status": local["status"]})
+                item.update({"direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "ledger_status": local["status"]})
             else:
-                item.update({"direction": item.get("direction") or "credit" if item.get("receiverIdentityPublicKey") else item.get("direction") or "unknown", "transaction_type": item.get("transaction_type") or "spark", "wallet_id": None, "wallet_name": None, "wallet_user": None})
+                item.update({"direction": item.get("direction") or "credit" if item.get("receiverIdentityPublicKey") else item.get("direction") or "unknown", "transaction_type": item.get("transaction_type") or "spark", "source": item.get("source") or "#spark-l2", "wallet_id": None, "wallet_name": None, "wallet_user": None})
             enriched.append(item)
         _transfers_cache = enriched
         _transfers_cache_at = time.monotonic()
@@ -117,14 +117,17 @@ async def api_transfer(data: SparkTransferRequest, user=Depends(check_user_exist
     wallet = next((w for w in user.wallets if w.id == data.wallet_id), None)
     if not wallet:
         raise HTTPException(status_code=404, detail="Wallet not found")
+    fresh_wallet = await get_wallet(wallet.id)
+    if not fresh_wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found after refresh")
+    available_sats = int(fresh_wallet.balance_msat // 1000)
+    if data.amount_sats > available_sats:
+        raise HTTPException(status_code=400, detail=f"Insufficient wallet balance: {available_sats} sats available, {data.amount_sats} sats requested")
     result = await _call("transfer", {"amount_sats": data.amount_sats, "receiver_spark_address": data.receiver_spark_address, "memo": data.memo})
     provider_txid = result.get("id") or result.get("transfer_id") or result.get("transaction_id")
     # The shared sidecar balance is separate from LNbits accounting. Once the
     # provider accepts the transfer, debit the selected LNbits wallet so its
     # ledger reflects the outgoing Spark sats.
-    fresh_wallet = await get_wallet(wallet.id)
-    if not fresh_wallet:
-        raise HTTPException(status_code=404, detail="Wallet not found after Spark transfer")
     try:
         await record_internal_credit(
             fresh_wallet,
@@ -134,9 +137,9 @@ async def api_transfer(data: SparkTransferRequest, user=Depends(check_user_exist
         )
     except Exception as exc:
         logger.error("Spark transfer {} succeeded but LNbits debit failed for wallet {}: {}", provider_txid, wallet.id, exc)
-        await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "provider_succeeded_debit_failed", result, data.memo, transaction_type="spark", direction="debit")
+        await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "provider_succeeded_debit_failed", result, data.memo, transaction_type="spark", direction="debit", source="#spark-l2")
         raise HTTPException(status_code=502, detail="Spark transfer succeeded, but LNbits wallet debit failed; administrator reconciliation is required") from exc
-    await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "submitted", result, data.memo, transaction_type="spark", direction="debit")
+    await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "submitted", result, data.memo, transaction_type="spark", direction="debit", source="#spark-l2")
     return {"transaction_id": provider_txid, "provider": result, "wallet_id": wallet.id, "debited_sats": data.amount_sats}
 
 
@@ -214,6 +217,13 @@ async def api_user_withdrawal(data: WithdrawalRequest, user=Depends(check_user_e
     wallet = next((w for w in user.wallets if w.id == data.wallet_id), None)
     if not wallet:
         raise HTTPException(status_code=403, detail="Wallet does not belong to this user")
+    fresh_wallet = await get_wallet(wallet.id)
+    if not fresh_wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found after refresh")
+    if data.amount_sats:
+        available_sats = int(fresh_wallet.balance_msat // 1000)
+        if data.amount_sats > available_sats:
+            raise HTTPException(status_code=400, detail=f"Insufficient wallet balance: {available_sats} sats available, {data.amount_sats} sats requested")
     result = await _call("withdrawal", _model_data(data, exclude_none=True))
     provider_id = result.get("id") or result.get("transaction_id") or result.get("request_id")
     if data.amount_sats:
@@ -223,7 +233,7 @@ async def api_user_withdrawal(data: WithdrawalRequest, user=Depends(check_user_e
             transaction_key("onchain_send", provider_id or data.onchain_address, data.amount_sats),
             data.memo or "Bitcoin on-chain payment via funding source",
         )
-    await create_transfer(wallet.id, user.id, data.amount_sats or 0, data.onchain_address, provider_id, "submitted", result, data.memo, transaction_type="onchain", direction="debit")
+    await create_transfer(wallet.id, user.id, data.amount_sats or 0, data.onchain_address, provider_id, "submitted", result, data.memo, transaction_type="onchain", direction="debit", source="#spark-l2")
     return {"status": "submitted", "wallet_id": wallet.id, "provider": result}
 
 

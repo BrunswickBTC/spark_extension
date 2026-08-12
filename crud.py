@@ -62,7 +62,7 @@ async def get_transfer_by_provider(provider_txid: str):
     return await db.fetchone("SELECT * FROM sparkl2.transfers WHERE provider_txid = :provider_txid LIMIT 1", {"provider_txid": provider_txid})
 
 
-async def create_transfer(wallet_id: str, user_id: str, amount_sats: int, receiver: str, provider_txid: str | None, status: str, response, memo: str = "", transaction_type: str = "spark", direction: str = "debit"):
-    row = {"id": uuid4().hex, "wallet_id": wallet_id, "user_id": user_id, "direction": direction, "transaction_type": transaction_type, "amount_sats": amount_sats, "receiver_address": receiver, "provider_txid": provider_txid, "status": status, "provider_response": json.dumps({"memo": memo, "provider": response}, default=str)}
-    await db.execute("INSERT INTO sparkl2.transfers (id, wallet_id, user_id, direction, transaction_type, amount_sats, receiver_address, provider_txid, status, provider_response) VALUES (:id, :wallet_id, :user_id, :direction, :transaction_type, :amount_sats, :receiver_address, :provider_txid, :status, :provider_response)", row)
+async def create_transfer(wallet_id: str, user_id: str, amount_sats: int, receiver: str, provider_txid: str | None, status: str, response, memo: str = "", transaction_type: str = "spark", direction: str = "debit", source: str = "#spark-l2"):
+    row = {"id": uuid4().hex, "wallet_id": wallet_id, "user_id": user_id, "direction": direction, "transaction_type": transaction_type, "source": source, "amount_sats": amount_sats, "receiver_address": receiver, "provider_txid": provider_txid, "status": status, "provider_response": json.dumps({"memo": memo, "provider": response}, default=str)}
+    await db.execute("INSERT INTO sparkl2.transfers (id, wallet_id, user_id, direction, transaction_type, source, amount_sats, receiver_address, provider_txid, status, provider_response) VALUES (:id, :wallet_id, :user_id, :direction, :transaction_type, :source, :amount_sats, :receiver_address, :provider_txid, :status, :provider_response)", row)
     return await db.fetchone("SELECT * FROM sparkl2.transfers WHERE id = :id", {"id": row["id"]})

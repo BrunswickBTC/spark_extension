@@ -106,7 +106,7 @@ async def reconcile_onchain(client: SparkSidecarClient) -> None:
                 f"Spark on-chain deposit {txid}:{vout}",
             )
             await mark_deposit_credited(record["id"], txid, vout, int(amount_sats))
-            await create_transfer(record["wallet_id"], record["user_id"], int(amount_sats), record["address"], txid, "credited", {"txid": txid, "vout": vout}, f"Spark on-chain deposit {txid}:{vout}", transaction_type="onchain", direction="credit")
+            await create_transfer(record["wallet_id"], record["user_id"], int(amount_sats), record["address"], txid, "credited", {"txid": txid, "vout": vout}, f"Spark on-chain deposit {txid}:{vout}", transaction_type="onchain", direction="credit", source="#spark-l2")
             publish({"type": "onchain_credited", "deposit_id": record["id"], "txid": txid, "vout": vout, "amount_sats": int(amount_sats), "credited": credited})
         except Exception as exc:
             logger.warning("Spark on-chain reconciliation failed for {}: {}", record.get("id"), exc)
@@ -132,14 +132,14 @@ async def reconcile_spark_transfers(client: SparkSidecarClient) -> None:
         status = str(transfer.get("status", "")).upper()
         if status not in {"COMPLETED", "TRANSFER_COMPLETED"}:
             continue
-        receiver = transfer.get("receiverIdentityPublicKey") or transfer.get("receiver_identity_public_key")
+        receiver = transfer.get("receiverIdentityPublicKey") or transfer.get("receiver_identity_public_key") or (transfer.get("userRequest") or {}).get("receiverIdentityPublicKey") or (transfer.get("userRequest") or {}).get("receiver_identity_public_key")
         if isinstance(receiver, dict):
             receiver = receiver.get("value") or receiver.get("hex")
         if isinstance(receiver, (bytes, bytearray)):
             receiver = bytes(receiver).hex()
         if receiver and str(receiver).lower() != str(receiver_identity).lower():
             continue
-        amount = transfer.get("totalValue") or transfer.get("total_value") or transfer.get("amountSats")
+        amount = transfer.get("totalValue") or transfer.get("total_value") or transfer.get("amountSats") or (transfer.get("userRequest") or {}).get("amountSats")
         txid = transfer.get("id") or transfer.get("transfer_id")
         if not txid or not amount:
             continue
@@ -149,7 +149,7 @@ async def reconcile_spark_transfers(client: SparkSidecarClient) -> None:
             continue
         credited = await record_internal_credit(wallet, amount, transaction_key("spark_receive", txid), memo)
         receive_user = await core_db.fetchone("SELECT accounts.id AS user_id FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.id = :wallet_id", {"wallet_id": wallet_id})
-        await create_transfer(wallet_id, receive_user["user_id"] if receive_user else "unknown", amount, str(receiver_identity), txid, "credited", transfer, memo, transaction_type="spark", direction="credit")
+        await create_transfer(wallet_id, receive_user["user_id"] if receive_user else "unknown", amount, str(receiver_identity), txid, "credited", transfer, memo, transaction_type="spark", direction="credit", source="#spark-l2")
         publish({"type": "spark_received", "transaction_id": txid, "amount_sats": amount, "wallet_id": wallet_id, "credited": credited})
 
 
