@@ -41,6 +41,10 @@ async def list_reconcilable_deposits():
     return await db.fetchall("SELECT * FROM sparkl2.deposit_addresses WHERE status IN ('issued', 'claiming') ORDER BY created_at ASC")
 
 
+async def get_active_deposit(wallet_id: str):
+    return await db.fetchone("SELECT * FROM sparkl2.deposit_addresses WHERE wallet_id = :wallet_id AND status != 'credited' ORDER BY created_at DESC LIMIT 1", {"wallet_id": wallet_id})
+
+
 async def get_deposit_by_address(address: str):
     return await db.fetchone("SELECT * FROM sparkl2.deposit_addresses WHERE address = :address", {"address": address})
 

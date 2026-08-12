@@ -6,7 +6,7 @@ from typing import Any
 from bolt11 import decode as bolt11_decode
 from loguru import logger
 
-from lnbits.core.crud import create_payment, get_wallet
+from lnbits.core.crud import create_payment, get_wallet, get_standalone_payment
 from lnbits.core.db import db as core_db
 from lnbits.core.models import CreatePayment, PaymentState
 from lnbits.wallets import fake_wallet
@@ -52,7 +52,7 @@ def parse_utxo(utxo: dict[str, Any]) -> tuple[str, int, int]:
     return txid, vout, amount_sats
 
 
-async def record_internal_credit(wallet, amount_sats: int, checking_id: str, memo: str) -> bool:
+async def record_internal_credit(wallet, amount_sats: int, checking_id: str, memo: str, source: str = SPARK_TAG) -> bool:
     response = await fake_wallet.create_invoice(abs(amount_sats), memo=memo)
     invoice = bolt11_decode(response.payment_request)
     payment = CreatePayment(
@@ -62,7 +62,7 @@ async def record_internal_credit(wallet, amount_sats: int, checking_id: str, mem
         preimage=response.preimage,
         amount_msat=amount_sats * 1000,
         memo=memo,
-        extra={"tag": SPARK_TAG},
+        extra={"tag": source},
     )
     try:
         await create_payment(checking_id=checking_id, data=payment, status=PaymentState.SUCCESS)
@@ -106,7 +106,9 @@ async def reconcile_onchain(client: SparkSidecarClient) -> None:
                 f"Spark on-chain deposit {txid}:{vout}",
             )
             await mark_deposit_credited(record["id"], txid, vout, int(amount_sats))
-            await create_transfer(record["wallet_id"], record["user_id"], int(amount_sats), record["address"], txid, "credited", {"txid": txid, "vout": vout}, f"Spark on-chain deposit {txid}:{vout}", transaction_type="onchain", direction="credit", source="#spark-l2")
+            existing_payment = await core_db.fetchone("SELECT checking_id FROM apipayments WHERE memo = :memo AND wallet = :wallet_id ORDER BY time DESC LIMIT 1", {"memo": f"Spark on-chain deposit {txid}:{vout}", "wallet_id": wallet.source_wallet_id})
+            if not await get_transfer_by_provider(txid):
+                await create_transfer(record["wallet_id"], record["user_id"], int(amount_sats), record["address"], txid, "credited", {"txid": txid, "vout": vout, "ledger_checking_id": existing_payment["checking_id"] if existing_payment else None}, f"Spark on-chain deposit {txid}:{vout}", transaction_type="onchain", direction="credit", source="#spark-l2")
             publish({"type": "onchain_credited", "deposit_id": record["id"], "txid": txid, "vout": vout, "amount_sats": int(amount_sats), "credited": credited})
         except Exception as exc:
             logger.warning("Spark on-chain reconciliation failed for {}: {}", record.get("id"), exc)

@@ -11,7 +11,7 @@ from loguru import logger
 from .client import SparkSidecarClient
 from .events import events_response
 from .reconciler import record_internal_credit, transaction_key
-from .crud import (create_deposit, get_deposit, get_deposit_by_address, list_deposits, mark_deposit_claimed, create_transfer, get_transfer_by_provider, get_setting, set_setting, GLOBAL_WALLET_KEY)
+from .crud import (create_deposit, get_active_deposit, get_deposit, get_deposit_by_address, list_deposits, mark_deposit_claimed, create_transfer, get_transfer_by_provider, get_setting, set_setting, GLOBAL_WALLET_KEY)
 from lnbits.core.crud import get_wallet, get_user, get_accounts
 from lnbits.core.db import db as core_db
 from lnbits.db import Filters
@@ -148,6 +148,9 @@ async def api_receive_onchain(data: ReceiveAddressRequest, user=Depends(check_us
     wallet = next((w for w in user.wallets if w.id == data.wallet_id), None)
     if not wallet:
         raise HTTPException(status_code=403, detail="Wallet does not belong to this user")
+    existing = await get_active_deposit(wallet.id)
+    if existing:
+        return {"deposit_id": existing["id"], "wallet_id": wallet.id, "address": existing["address"], "status": existing["status"], "existing": True}
     result = await _call("single_use_deposit")
     address = result.get("address")
     if not address:
