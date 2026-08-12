@@ -58,6 +58,7 @@ class WithdrawalRequest(BaseModel):
     exit_speed: str = Field(..., min_length=1, max_length=32)
     fee_quote_id: str = Field(..., min_length=1, max_length=512)
     fee_amount_sats: int = Field(..., ge=0)
+    deduct_fee_from_withdrawal_amount: bool = True
     memo: str = Field("", max_length=640)
 
 

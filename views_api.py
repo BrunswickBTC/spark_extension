@@ -228,8 +228,9 @@ async def api_user_withdrawal(data: WithdrawalRequest, user=Depends(check_user_e
         raise HTTPException(status_code=404, detail="Wallet not found after refresh")
     if data.amount_sats:
         available_sats = int(fresh_wallet.balance_msat // 1000)
-        if data.amount_sats > available_sats:
-            raise HTTPException(status_code=400, detail=f"Insufficient wallet balance: {available_sats} sats available, {data.amount_sats} sats requested")
+        wallet_debit = data.amount_sats + (data.fee_amount_sats if not data.deduct_fee_from_withdrawal_amount else 0)
+        if wallet_debit > available_sats:
+            raise HTTPException(status_code=400, detail=f"Insufficient wallet balance: {available_sats} sats available, {wallet_debit} sats required including the withdrawal fee")
     result = await _call("withdrawal", _model_data(data, exclude_none=True))
     provider_id = result.get("id") or result.get("transaction_id") or result.get("request_id")
     if data.amount_sats:
