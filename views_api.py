@@ -97,8 +97,20 @@ async def api_transfer(data: SparkTransferRequest, user=Depends(check_user_exist
         raise HTTPException(status_code=404, detail="Wallet not found")
     result = await _call("transfer", {"amount_sats": data.amount_sats, "receiver_spark_address": data.receiver_spark_address})
     provider_txid = result.get("id") or result.get("transfer_id") or result.get("transaction_id")
+    # The shared sidecar balance is separate from LNbits accounting. Once the
+    # provider accepts the transfer, debit the selected LNbits wallet so its
+    # ledger reflects the outgoing Spark sats.
+    fresh_wallet = await get_wallet(wallet.id)
+    if not fresh_wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found after Spark transfer")
+    try:
+        await update_wallet_balance(fresh_wallet, -data.amount_sats)
+    except Exception as exc:
+        logger.error("Spark transfer {} succeeded but LNbits debit failed for wallet {}: {}", provider_txid, wallet.id, exc)
+        await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "provider_succeeded_debit_failed", result)
+        raise HTTPException(status_code=502, detail="Spark transfer succeeded, but LNbits wallet debit failed; administrator reconciliation is required") from exc
     await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "submitted", result)
-    return {"transaction_id": provider_txid, "provider": result}
+    return {"transaction_id": provider_txid, "provider": result, "wallet_id": wallet.id, "debited_sats": data.amount_sats}
 
 
 @sparkl2_api_router.post("/api/v1/receive/onchain", dependencies=[Depends(check_user_exists)])
