@@ -27,8 +27,9 @@ sparkl2_api_router = APIRouter()
 
 
 def _model_data(model: Any, *, exclude_none: bool = False) -> dict[str, Any]:
-    if hasattr(model, "model_dump"):
-        return model.model_dump(exclude_none=exclude_none)
+    dump = getattr(model, "model_dump", None)
+    if callable(dump):
+        return dump(exclude_none=exclude_none)
     return model.dict(exclude_none=exclude_none)
 
 
@@ -72,10 +73,10 @@ async def api_transfers(data: TransfersRequest):
 
 @sparkl2_api_router.post("/api/v1/transfer", dependencies=[Depends(check_user_exists)])
 async def api_transfer(data: SparkTransferRequest, user=Depends(check_user_exists)):
-    wallet = next((w for w in user.wallets if w.id == data.wallet_id), None)
+    wallet = await get_wallet(user.wallets[0].id)
     if not wallet:
         raise HTTPException(status_code=404, detail="Wallet not found")
-    result = await _call("transfer", {"amount_sats": data.amount_sats, "receiver_spark_address": data.receiver_spark_address})
+    result = await _call("transfer", _model_data(data))
     provider_txid = result.get("id") or result.get("transfer_id") or result.get("transaction_id")
     await create_transfer(wallet.id, user.id, data.amount_sats, data.receiver_spark_address, provider_txid, "submitted", result)
     return {"transaction_id": provider_txid, "provider": result}
@@ -118,6 +119,22 @@ async def api_admin_deposit_claim(data: DepositClaimRequest):
     await update_wallet_balance(wallet, data.amount_sats)
     await mark_deposit_claimed(data.deposit_id, data.txid, data.amount_sats)
     return {"status": "credited", "deposit_id": data.deposit_id, "wallet_id": record["wallet_id"], "txid": data.txid}
+
+
+@sparkl2_api_router.post("/api/v1/withdrawal/user", dependencies=[Depends(check_user_exists)])
+async def api_user_withdrawal(data: WithdrawalRequest, user=Depends(check_user_exists)):
+    # On-chain sends are attributed to the selected LNbits wallet and user.
+    # The sidecar quote is generated immediately before submission.
+    wallet = next((w for w in user.wallets if w.id == data.wallet_id), None)
+    if not wallet:
+        raise HTTPException(status_code=403, detail="Wallet does not belong to this user")
+    quote = await _call("withdrawal_quote", {"amount_sats": data.amount_sats, "withdrawal_address": data.onchain_address})
+    quote_id = quote.get("id") or quote.get("quote_id") or quote.get("fee_quote_id")
+    fee = quote.get("fee_amount_sats") or quote.get("fee_sats") or quote.get("fee")
+    if not quote_id or fee is None:
+        raise HTTPException(status_code=502, detail="Sidecar returned an unusable withdrawal fee quote")
+    result = await _call("withdrawal", {"onchain_address": data.onchain_address, "amount_sats": data.amount_sats, "exit_speed": data.exit_speed, "fee_quote": quote, "fee_quote_id": quote_id, "fee_amount_sats": fee})
+    return {"quote": quote, "withdrawal": result, "wallet_id": wallet.id, "user_id": user.id}
 
 
 @sparkl2_api_router.post("/api/v1/tokens/transfer", dependencies=[Depends(check_admin)])
