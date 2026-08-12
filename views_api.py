@@ -105,7 +105,7 @@ async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
             local = local_map.get(str(provider_id))
             if local:
                 seen_provider_ids.add(str(provider_id))
-                item.update({"id": local["id"], "direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "amount_sats": local["amount_sats"], "ledger_status": local["status"]})
+                item.update({"id": local["id"], "direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "amount_sats": local["amount_sats"], "ledger_status": local["status"], "created": local["created_at"].isoformat() if hasattr(local["created_at"], "isoformat") else str(local["created_at"])})
             else:
                 item.update({"direction": item.get("direction") or "unknown", "transaction_type": item.get("transaction_type") or "spark", "source": item.get("source") or "#spark-l2", "wallet_id": None, "wallet_name": None, "wallet_user": None})
             enriched.append(item)
@@ -113,7 +113,8 @@ async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
             if not local.get("provider_txid") or str(local["provider_txid"]) in seen_provider_ids:
                 continue
             wallet = wallet_map.get(str(local["wallet_id"]), {})
-            enriched.append({"id": local["id"], "direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet.get("wallet_name"), "wallet_user": wallet.get("user_name"), "amount_sats": local["amount_sats"], "ledger_status": local["status"], "provider_txid": local["provider_txid"]})
+            enriched.append({"id": local["id"], "direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet.get("wallet_name"), "wallet_user": wallet.get("user_name"), "amount_sats": local["amount_sats"], "ledger_status": local["status"], "provider_txid": local["provider_txid"], "created": local["created_at"].isoformat() if hasattr(local["created_at"], "isoformat") else str(local["created_at"])})
+        enriched.sort(key=lambda row: str(row.get("created") or row.get("createdAt") or row.get("userRequest", {}).get("createdAt") or ""), reverse=True)
         _transfers_cache = enriched
         _transfers_cache_at = time.monotonic()
         return enriched

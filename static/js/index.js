@@ -7,7 +7,7 @@ window.app.mixin({
       {name: 'wallet', label: 'LNbits wallet', field: row => row.wallet_user && row.wallet_name ? `${row.wallet_user} / ${row.wallet_name}` : row.wallet_name || row.wallet_id || 'Unattributed'},
       {name: 'amount', label: 'Amount (sats)', field: row => row.amount_sats ?? row.totalValue ?? row.amountSats ?? row.amount ?? ''},
       {name: 'status', label: 'Status', field: row => row.ledger_status || row.status || row.state || 'unknown'},
-      {name: 'created', label: 'Created', field: row => row.userRequest?.createdAt || row.createdAt || ''}
+      {name: 'created', label: 'Created', field: row => row.created || row.userRequest?.createdAt || row.createdAt || ''}
     ] } },
   computed: { isAdmin() { return !!this.g.user?.admin }, walletOptions() { return (this.g.user?.wallets || []).map(w => ({label: w.name, value: w.id})) }, selectedWalletName() { return this.walletOptions.find(w => w.value === this.selectedWalletId)?.label || 'selected wallet' }, globalWalletGroups() { const groups = {}; for (const w of this.globalWallets) (groups[w.user_name] ||= []).push(w); return Object.entries(groups).map(([label, options]) => ({label, options})) }, canSend() { return !!this.send.wallet_id && Number(this.send.amount_sats) > 0 && !!this.send.address } },
   methods: {
