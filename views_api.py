@@ -96,9 +96,13 @@ async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
         seen_provider_ids = set()
         for row in provider_rows:
             item = dict(row) if isinstance(row, dict) else {"provider": row}
-            provider_ids = {str(value) for value in (item.get("id"), item.get("transfer_id"), item.get("transaction_id"), item.get("userRequestId"), item.get("user_request_id")) if value}
+            provider_ids = {str(value) for value in (item.get("id"), item.get("transfer_id"), item.get("transaction_id"), item.get("userRequestId"), item.get("user_request_id"), item.get("coopExitTxid"), item.get("coop_exit_txid")) if value}
             request = item.get("userRequest") if isinstance(item.get("userRequest"), dict) else {}
-            provider_ids.update(str(value) for value in (request.get("id"), request.get("userRequestId"), request.get("user_request_id")) if value)
+            provider_ids.update(str(value) for value in (request.get("id"), request.get("userRequestId"), request.get("user_request_id"), request.get("coopExitTxid"), request.get("coop_exit_txid")) if value)
+            raw_provider = item.get("provider") if isinstance(item.get("provider"), dict) else {}
+            provider_ids.update(str(value) for value in (raw_provider.get("id"), raw_provider.get("userRequestId"), raw_provider.get("coopExitTxid"), raw_provider.get("coop_exit_txid")) if value)
+            nested_transfer = raw_provider.get("transfer") if isinstance(raw_provider.get("transfer"), dict) else {}
+            provider_ids.update(str(value) for value in (nested_transfer.get("sparkId"), nested_transfer.get("userRequestId"), nested_transfer.get("id")) if value)
             local = next((local_map.get(value) for value in provider_ids if local_map.get(value)), None)
             provider_id = next(iter(provider_ids), None)
             if local:
