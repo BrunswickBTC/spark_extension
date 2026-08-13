@@ -90,17 +90,20 @@ async def api_transfers(data: TransfersRequest, user=Depends(check_admin)):
         provider_rows = result if isinstance(result, list) else result.get("transfers", result.get("data", result.get("items", []))) if isinstance(result, dict) else []
         wallet_rows = await core_db.fetchall("SELECT wallets.id AS wallet_id, wallets.name AS wallet_name, accounts.id AS user_id, COALESCE(accounts.username, accounts.email, accounts.id) AS user_name FROM wallets JOIN accounts ON accounts.id = wallets.user WHERE wallets.deleted = false")
         wallet_map = {str(row["wallet_id"]): row for row in wallet_rows}
-        local_rows = await db.fetchall("SELECT id, wallet_id, direction, transaction_type, source, amount_sats, provider_txid, status, created_at FROM sparkl2.transfers ORDER BY created_at DESC LIMIT 100")
+        local_rows = await db.fetchall("SELECT id, wallet_id, direction, transaction_type, source, amount_sats, provider_txid, status, provider_response, created_at FROM sparkl2.transfers ORDER BY created_at DESC LIMIT 100")
         local_map = {str(row["provider_txid"]): row for row in local_rows if row.get("provider_txid")}
         enriched = []
         seen_provider_ids = set()
         for row in provider_rows:
             item = dict(row) if isinstance(row, dict) else {"provider": row}
-            provider_id = item.get("id") or item.get("transfer_id") or item.get("transaction_id")
-            local = local_map.get(str(provider_id))
+            provider_ids = {str(value) for value in (item.get("id"), item.get("transfer_id"), item.get("transaction_id"), item.get("userRequestId"), item.get("user_request_id")) if value}
+            request = item.get("userRequest") if isinstance(item.get("userRequest"), dict) else {}
+            provider_ids.update(str(value) for value in (request.get("id"), request.get("userRequestId"), request.get("user_request_id")) if value)
+            local = next((local_map.get(value) for value in provider_ids if local_map.get(value)), None)
+            provider_id = next(iter(provider_ids), None)
             if local:
-                seen_provider_ids.add(str(provider_id))
-                item.update({"id": local["id"], "direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "amount_sats": local["amount_sats"], "ledger_status": local["status"], "created": local["created_at"].isoformat() if hasattr(local["created_at"], "isoformat") else str(local["created_at"])})
+                seen_provider_ids.add(str(local["provider_txid"]))
+                item.update({"id": local["id"], "provider_txid": local["provider_txid"], "direction": local["direction"], "transaction_type": local["transaction_type"], "source": local["source"] or "#spark-l2", "wallet_id": local["wallet_id"], "wallet_name": wallet_map.get(str(local["wallet_id"]), {}).get("wallet_name"), "wallet_user": wallet_map.get(str(local["wallet_id"]), {}).get("user_name"), "amount_sats": local["amount_sats"], "ledger_status": local["status"], "created": local["created_at"].isoformat() if hasattr(local["created_at"], "isoformat") else str(local["created_at"])})
             else:
                 item.update({"direction": item.get("direction") or "unknown", "transaction_type": item.get("transaction_type") or "spark", "source": item.get("source") or "#spark-l2", "wallet_id": None, "wallet_name": None, "wallet_user": None})
             enriched.append(item)
@@ -233,14 +236,21 @@ async def api_user_withdrawal(data: WithdrawalRequest, user=Depends(check_user_e
             raise HTTPException(status_code=400, detail=f"Insufficient wallet balance: {available_sats} sats available, {wallet_debit} sats required including the withdrawal fee")
     result = await _call("withdrawal", _model_data(data, exclude_none=True))
     provider_id = result.get("id") or result.get("transaction_id") or result.get("request_id")
+    provider_transfer = result.get("transfer") if isinstance(result, dict) else None
+    if isinstance(provider_transfer, dict):
+        transfer_id = provider_transfer.get("id") or provider_transfer.get("sparkId") or provider_transfer.get("userRequestId")
+        provider_id = provider_id or transfer_id
+    provider_txid = (result.get("coopExitTxid") or result.get("coop_exit_txid") or result.get("transaction_id") or provider_id) if isinstance(result, dict) else provider_id
+    fee_sats = int(data.fee_amount_sats)
+    wallet_debit = data.amount_sats + (0 if data.deduct_fee_from_withdrawal_amount else fee_sats)
     if data.amount_sats:
         await record_internal_credit(
             wallet,
-            -data.amount_sats,
-            transaction_key("onchain_send", provider_id or data.onchain_address, data.amount_sats),
-            data.memo or "Bitcoin on-chain payment via funding source",
+            -wallet_debit,
+            transaction_key("onchain_send", provider_id or data.onchain_address, data.amount_sats, fee_sats),
+            data.memo or f"Bitcoin on-chain payment via funding source (fee {fee_sats} sats)",
         )
-    await create_transfer(wallet.id, user.id, data.amount_sats or 0, data.onchain_address, provider_id, "submitted", result, data.memo, transaction_type="onchain", direction="debit", source="#spark-l2")
+    await create_transfer(wallet.id, user.id, wallet_debit, data.onchain_address, provider_txid, result.get("status", "submitted") if isinstance(result, dict) else "submitted", result, data.memo, transaction_type="onchain", direction="debit", source="#spark-l2")
     return {"status": "submitted", "wallet_id": wallet.id, "provider": result}
 
 
