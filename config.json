@@ -1,13 +1,14 @@
 {
   "id": "sparkl2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "name": "Spark L2",
-  "repo": "https://github.com/wolffelectronicdesign/sparkl2-lnbits",
-  "short_description": "Provider-specific read-only management for the Spark L2 sidecar",
-  "description": "",
+  "repo": "https://github.com/BrunswickBTC/spark_extension",
+  "short_description": "Spark L2 funding-source integration for LNbits with wallet attribution, deposits, withdrawals, and admin audit tools",
+  "description": "Integrates LNbits with an authenticated Spark L2 sidecar. Supports wallet-scoped Spark sends, one-time on-chain deposits, administrator-routed shared Spark receiving, fee-quoted on-chain withdrawals, idempotent reconciliation, and Recent Transfers auditing.",
   "tile": "/sparkl2/static/image/sparkl2.png",
+  "contributors": ["BrunswickBTC"],
   "min_lnbits_version": "1.5.0",
   "license": "MIT",
-  "tags": ["Wallet", "Spark", "Management"],
+  "tags": ["Wallet", "Spark", "Bitcoin", "Management"],
   "hidden": false
 }

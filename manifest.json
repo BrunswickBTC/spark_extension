@@ -1,0 +1,9 @@
+{
+  "repos": [
+    {
+      "id": "sparkl2",
+      "organisation": "BrunswickBTC",
+      "repository": "spark_extension"
+    }
+  ]
+}

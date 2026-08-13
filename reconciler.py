@@ -78,8 +78,11 @@ def parse_utxo(utxo: dict[str, Any]) -> tuple[str, int, int]:
         amount_sats = int(amount)
     except (TypeError, ValueError) as exc:
         raise ValueError("UTXO is missing amount_sats") from exc
-    if amount_sats <= 0:
-        raise ValueError("UTXO amount_sats must be positive")
+    if amount_sats > 21_000_000 and amount_sats % 100_000_000 == 0:
+        logger.warning("Normalizing malformed UTXO amount_sats=%s by 100000000", amount_sats)
+        amount_sats //= 100_000_000
+    if amount_sats <= 0 or amount_sats > 21_000_000:
+        raise ValueError(f"UTXO amount_sats is outside the valid Bitcoin range: {amount_sats}")
     return txid, vout, amount_sats
 
 
@@ -137,7 +140,7 @@ async def reconcile_onchain(client: SparkSidecarClient) -> None:
                 f"Spark on-chain deposit {txid}:{vout}",
             )
             await mark_deposit_credited(record["id"], txid, vout, int(amount_sats))
-            existing_payment = await core_db.fetchone("SELECT checking_id FROM apipayments WHERE memo = :memo AND wallet = :wallet_id ORDER BY time DESC LIMIT 1", {"memo": f"Spark on-chain deposit {txid}:{vout}", "wallet_id": wallet.source_wallet_id})
+            existing_payment = await core_db.fetchone("SELECT checking_id FROM apipayments WHERE memo = :memo AND wallet_id = :wallet_id ORDER BY time DESC LIMIT 1", {"memo": f"Spark on-chain deposit {txid}:{vout}", "wallet_id": wallet.source_wallet_id})
             if not await get_transfer_by_provider(txid):
                 await create_transfer(record["wallet_id"], record["user_id"], int(amount_sats), record["address"], txid, "credited", {"txid": txid, "vout": vout, "ledger_checking_id": existing_payment["checking_id"] if existing_payment else None}, f"Spark on-chain deposit {txid}:{vout}", transaction_type="onchain", direction="credit", source="#spark-l2")
             publish({"type": "onchain_credited", "deposit_id": record["id"], "txid": txid, "vout": vout, "amount_sats": int(amount_sats), "credited": credited})

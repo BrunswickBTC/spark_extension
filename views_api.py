@@ -62,6 +62,55 @@ async def _call(operation: str, payload: dict[str, Any] | None = None) -> Any:
         await client.close()
 
 
+@sparkl2_api_router.get("/api/v1/compatibility", dependencies=[Depends(check_user_exists)])
+async def api_compatibility():
+    from lnbits.settings import settings
+
+    required_lnbits = "1.5.0"
+    probes = {}
+    for operation in ("identity", "settings", "balance", "optimization", "static_addresses", "transfers"):
+        try:
+            payload = {"limit": 1, "offset": 0} if operation == "transfers" else {}
+            await _call(operation, payload)
+            probes[operation] = {"available": True}
+        except HTTPException as exc:
+            probes[operation] = {"available": False, "status": exc.status_code, "detail": str(exc.detail)}
+
+    def version_tuple(value: str) -> tuple[int, ...]:
+        try:
+            return tuple(int(part) for part in value.split(".")[:3])
+        except ValueError:
+            return (0,)
+
+    lnbits_version = str(getattr(settings, "version", "0.0.0"))
+    required_version_tuple = version_tuple(required_lnbits)
+    return {
+        "extension_id": "sparkl2",
+        "extension_version": "0.2.0",
+        "lnbits": {
+            "version": lnbits_version,
+            "minimum_version": required_lnbits,
+            "compatible": version_tuple(lnbits_version) >= required_version_tuple,
+            "funding_source_settings": {
+                "endpoint_configured": bool(settings.spark_l2_external_endpoint),
+                "api_key_configured": bool(settings.spark_l2_external_api_key),
+                "network": settings.spark_l2_network,
+            },
+        },
+        "sidecar": {
+            "api_contract": "spark-sidecar-v1",
+            "endpoint": settings.spark_l2_external_endpoint,
+            "probes": probes,
+            "compatible": all(value["available"] for value in probes.values()),
+        },
+        "required_operations": [
+            "identity", "settings", "balance", "optimization", "static_addresses", "transfers",
+            "single_use_deposit", "deposit_utxos", "deposit_claim", "transfer", "withdrawal_quote", "withdrawal",
+        ],
+        "instructions": "Install only when LNbits meets minimum_version and the required sidecar probes are available. Match the sidecar API contract before enabling reconciliation or payments.",
+    }
+
+
 @sparkl2_api_router.post("/api/v1/balance", dependencies=[Depends(check_user_exists)])
 async def api_balance():
     return await _call("balance")
