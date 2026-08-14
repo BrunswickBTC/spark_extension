@@ -7,6 +7,7 @@ from lnbits.settings import settings
 
 
 _ROUTES = {
+    "capabilities": ("GET", "/v1/capabilities"),
     "balance": ("POST", "/v1/balance"),
     "identity": ("GET", "/v1/identity"),
     "settings": ("GET", "/v1/settings"),

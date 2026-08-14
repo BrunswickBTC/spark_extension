@@ -67,6 +67,12 @@ async def api_compatibility():
     from lnbits.settings import settings
 
     required_lnbits = "1.5.0"
+    capability_report = None
+    try:
+        capability_report = await _call("capabilities")
+    except HTTPException as exc:
+        capability_report = {"available": False, "status": exc.status_code, "detail": str(exc.detail)}
+
     probes = {}
     for operation in ("identity", "settings", "balance", "optimization", "static_addresses", "transfers"):
         try:
@@ -98,10 +104,14 @@ async def api_compatibility():
             },
         },
         "sidecar": {
-            "api_contract": "spark-sidecar-v1",
+            "api_contract": (capability_report or {}).get("api_contract", "unknown") if isinstance(capability_report, dict) else "unknown",
+            "api_version": (capability_report or {}).get("api_version") if isinstance(capability_report, dict) else None,
+            "sidecar_version": (capability_report or {}).get("sidecar_version") if isinstance(capability_report, dict) else None,
+            "sdk": (capability_report or {}).get("sdk") if isinstance(capability_report, dict) else None,
             "endpoint": settings.spark_l2_external_endpoint,
+            "capability_report": capability_report,
             "probes": probes,
-            "compatible": all(value["available"] for value in probes.values()),
+            "compatible": isinstance(capability_report, dict) and capability_report.get("api_contract") == "spark-sidecar-v1" and capability_report.get("api_version") == 1 and all(value["available"] for value in probes.values()),
         },
         "required_operations": [
             "identity", "settings", "balance", "optimization", "static_addresses", "transfers",

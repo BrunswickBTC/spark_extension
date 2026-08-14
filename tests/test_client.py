@@ -9,6 +9,7 @@ def test_sidecar_path_rejects_unknown_route():
 
 
 def test_sidecar_path_maps_read_only_routes():
+    assert sidecar_path("capabilities") == ("GET", "/v1/capabilities")
     assert sidecar_path("balance") == ("POST", "/v1/balance")
     assert sidecar_path("identity") == ("GET", "/v1/identity")
     assert sidecar_path("settings") == ("GET", "/v1/settings")
