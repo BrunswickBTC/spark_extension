@@ -92,7 +92,7 @@ async def api_compatibility():
     required_version_tuple = version_tuple(required_lnbits)
     return {
         "extension_id": "sparkl2",
-        "extension_version": "0.2.0",
+        "extension_version": "0.2.1",
         "lnbits": {
             "version": lnbits_version,
             "minimum_version": required_lnbits,

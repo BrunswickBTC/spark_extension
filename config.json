@@ -1,6 +1,6 @@
 {
   "id": "sparkl2",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "name": "Spark L2",
   "repo": "https://github.com/BrunswickBTC/spark_extension",
   "short_description": "Spark L2 funding-source integration for LNbits with wallet attribution, deposits, withdrawals, and admin audit tools",
